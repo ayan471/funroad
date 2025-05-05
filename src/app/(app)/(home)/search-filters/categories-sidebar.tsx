@@ -1,3 +1,9 @@
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
+import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
+
+import { useTRPC } from "@/trpc/client";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Sheet,
@@ -5,12 +11,8 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+
 import { CategoriesGetManyOutput } from "@/modules/categories/types";
-import { useTRPC } from "@/trpc/client";
-import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRightIcon } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
 
 interface Props {
   open: boolean;
@@ -22,28 +24,33 @@ export const CategoriesSidebar = ({ open, onOpenChange }: Props) => {
   const { data } = useQuery(trpc.categories.getMany.queryOptions());
 
   const router = useRouter();
-  const [parentCategories, setParenntCategories] =
+
+  const [parentCategories, setParentCategories] =
     useState<CategoriesGetManyOutput | null>(null);
-  const [selectCategory, setSelectedCategory] = useState<
+  const [selectedCategory, setSelectedCategory] = useState<
     CategoriesGetManyOutput[1] | null
   >(null);
 
+  // If we have parent categories, show those, otherwise show root categories
   const currentCategories = parentCategories ?? data ?? [];
 
   const handleOpenChange = (open: boolean) => {
     setSelectedCategory(null);
-    setParenntCategories(null);
+    setParentCategories(null);
     onOpenChange(open);
   };
 
   const handleCategoryClick = (category: CategoriesGetManyOutput[1]) => {
     if (category.subcategories && category.subcategories.length > 0) {
-      setParenntCategories(category.subcategories as CategoriesGetManyOutput);
+      setParentCategories(category.subcategories as CategoriesGetManyOutput);
       setSelectedCategory(category);
     } else {
-      if (currentCategories && selectCategory) {
-        router.push(`/${selectCategory.slug}/${category.slug}`);
+      // This is a leaf category (no subcategories)
+      if (parentCategories && selectedCategory) {
+        //  This is a subcategory - navigate to /category/subcategory
+        router.push(`/${selectedCategory.slug}/${category.slug}`);
       } else {
+        // This is a main category - navigat to /category
         if (category.slug === "all") {
           router.push("/");
         } else {
@@ -55,14 +62,14 @@ export const CategoriesSidebar = ({ open, onOpenChange }: Props) => {
     }
   };
 
-  const backgroundColor = selectCategory?.color || "white";
-
   const handleBackClick = () => {
     if (parentCategories) {
-      setParenntCategories(null);
+      setParentCategories(null);
       setSelectedCategory(null);
     }
   };
+
+  const backgroundColor = selectedCategory?.color || "white";
 
   return (
     <Sheet open={open} onOpenChange={handleOpenChange}>
@@ -80,11 +87,11 @@ export const CategoriesSidebar = ({ open, onOpenChange }: Props) => {
               onClick={handleBackClick}
               className="w-full text-left p-4 hover:bg-black hover:text-white flex items-center text-base font-medium cursor-pointer"
             >
-              <ChevronLeft className="size-4 mr-2" />
+              <ChevronLeftIcon className="size-4 mr-2" />
               Back
             </button>
           )}
-          {currentCategories?.map((category) => (
+          {currentCategories.map((category) => (
             <button
               key={category.slug}
               onClick={() => handleCategoryClick(category)}
