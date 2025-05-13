@@ -73,7 +73,6 @@ export const ProductCard = ({
           </div>
         </div>
       </div>
-      s
     </Link>
   );
 };
