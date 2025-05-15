@@ -2,7 +2,9 @@ import type { Stripe } from "stripe";
 import { getPayload } from "payload";
 import config from "@payload-config";
 import { NextResponse } from "next/server";
+
 import { stripe } from "@/lib/stripe";
+
 import { ExpandedLineItem } from "@/modules/checkout/types";
 
 export async function POST(req: Request) {
@@ -12,7 +14,7 @@ export async function POST(req: Request) {
     event = stripe.webhooks.constructEvent(
       await (await req.blob()).text(),
       req.headers.get("stripe-signature") as string,
-      process.env.STRIPE_WEBHOOK_SECRET! as string
+      process.env.STRIPE_WEBHOOK_SECRET as string
     );
   } catch (error) {
     const errorMessage =
@@ -21,8 +23,8 @@ export async function POST(req: Request) {
     if (error! instanceof Error) {
       console.log(error);
     }
-    console.log(`❌ Error message: ${errorMessage}`);
 
+    console.log(`❌ Error message: ${errorMessage}`);
     return NextResponse.json(
       { message: `Webhook Error: ${errorMessage}` },
       { status: 400 }
@@ -31,7 +33,10 @@ export async function POST(req: Request) {
 
   console.log("✅ Success:", event.id);
 
-  const permittedEvents: string[] = ["checkout.session.completed"];
+  const permittedEvents: string[] = [
+    "checkout.session.completed",
+    "account.updated",
+  ];
 
   const payload = await getPayload({ config });
 
@@ -46,6 +51,7 @@ export async function POST(req: Request) {
           if (!data.metadata?.userId) {
             throw new Error("User ID is required");
           }
+
           const user = await payload.findByID({
             collection: "users",
             id: data.metadata.userId,
@@ -59,6 +65,9 @@ export async function POST(req: Request) {
             data.id,
             {
               expand: ["line_items.data.price.product"],
+            },
+            {
+              stripeAccount: event.account,
             }
           );
 
@@ -77,6 +86,7 @@ export async function POST(req: Request) {
               collection: "orders",
               data: {
                 stripeCheckoutSessionId: data.id,
+                stripeAccountId: event.account,
                 user: user.id,
                 product: item.price.product.metadata.id,
                 name: item.price.product.name,
@@ -84,18 +94,33 @@ export async function POST(req: Request) {
             });
           }
           break;
+        case "account.updated":
+          data = event.data.object as Stripe.Account;
+
+          await payload.update({
+            collection: "tenants",
+            where: {
+              stripeAccountId: {
+                equals: data.id,
+              },
+            },
+            data: {
+              stripeDetailsSubmitted: data.details_submitted,
+            },
+          });
+
+          break;
         default:
           throw new Error(`Unhandled event: ${event.type}`);
       }
     } catch (error) {
       console.log(error);
       return NextResponse.json(
-        {
-          message: "Webook handler failed",
-        },
+        { message: "Webhook handler failed" },
         { status: 500 }
       );
     }
   }
+
   return NextResponse.json({ message: "Received" }, { status: 200 });
 }

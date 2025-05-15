@@ -1,6 +1,7 @@
-import { isSuperAdmin } from "@/lib/access";
-import { Tenant } from "@/payload-types";
 import type { CollectionConfig } from "payload";
+
+import { Tenant } from "@/payload-types";
+import { isSuperAdmin } from "@/lib/access";
 
 export const Products: CollectionConfig = {
   slug: "products",
@@ -12,9 +13,11 @@ export const Products: CollectionConfig = {
 
       return Boolean(tenant?.stripeDetailsSubmitted);
     },
+    delete: ({ req }) => isSuperAdmin(req.user),
   },
   admin: {
     useAsTitle: "name",
+    description: "You must verify your account before creating products",
   },
   fields: [
     {
@@ -24,7 +27,7 @@ export const Products: CollectionConfig = {
     },
     {
       name: "description",
-      type: "text",
+      type: "richText",
     },
     {
       name: "price",
@@ -52,6 +55,11 @@ export const Products: CollectionConfig = {
       relationTo: "media",
     },
     {
+      name: "cover",
+      type: "upload",
+      relationTo: "media",
+    },
+    {
       name: "refundPolicy",
       type: "select",
       options: ["30-day", "14-day", "7-day", "3-day", "1-day", "no-refunds"],
@@ -59,10 +67,29 @@ export const Products: CollectionConfig = {
     },
     {
       name: "content",
-      type: "textarea",
+      type: "richText",
       admin: {
         description:
           "Protected content only visible to customers after purchase. Add product documentation, downloadable files, getting started guides, and bonus materials. Supports Markdown formatting",
+      },
+    },
+    {
+      name: "isPrivate",
+      label: "Private",
+      defaultValue: false,
+      type: "checkbox",
+      admin: {
+        description:
+          "If checked, this product will not be shown on the public storefront",
+      },
+    },
+    {
+      name: "isArchived",
+      label: "Archive",
+      defaultValue: false,
+      type: "checkbox",
+      admin: {
+        description: "If checked, this product will be archived",
       },
     },
   ],

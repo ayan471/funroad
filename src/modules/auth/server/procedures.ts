@@ -1,17 +1,20 @@
-import { baseProcedure, createTRPCRouter } from "@/trpc/init";
 import { TRPCError } from "@trpc/server";
 import { headers as getHeaders } from "next/headers";
-import { loginSchema, registerSchema } from "../schemas";
+
+import { stripe } from "@/lib/stripe";
+import { baseProcedure, createTRPCRouter } from "@/trpc/init";
+
 import { generateAuthCookie } from "../utils";
+import { loginSchema, registerSchema } from "../schemas";
 
 export const authRouter = createTRPCRouter({
   session: baseProcedure.query(async ({ ctx }) => {
     const headers = await getHeaders();
+
     const session = await ctx.db.auth({ headers });
 
     return session;
   }),
-
   register: baseProcedure
     .input(registerSchema)
     .mutation(async ({ input, ctx }) => {
@@ -34,12 +37,21 @@ export const authRouter = createTRPCRouter({
         });
       }
 
+      const account = await stripe.accounts.create({});
+
+      if (!account) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Failed to create Stripe account",
+        });
+      }
+
       const tenant = await ctx.db.create({
         collection: "tenants",
         data: {
           name: input.username,
           slug: input.username,
-          stripeAccountId: "test",
+          stripeAccountId: account.id,
         },
       });
 
@@ -48,7 +60,7 @@ export const authRouter = createTRPCRouter({
         data: {
           email: input.email,
           username: input.username,
-          password: input.password,
+          password: input.password, // This will be hashed
           tenants: [
             {
               tenant: tenant.id,
@@ -71,6 +83,7 @@ export const authRouter = createTRPCRouter({
           message: "Failed to login",
         });
       }
+
       await generateAuthCookie({
         prefix: ctx.db.config.cookiePrefix,
         value: data.token,
@@ -91,6 +104,7 @@ export const authRouter = createTRPCRouter({
         message: "Failed to login",
       });
     }
+
     await generateAuthCookie({
       prefix: ctx.db.config.cookiePrefix,
       value: data.token,

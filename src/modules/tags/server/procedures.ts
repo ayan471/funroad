@@ -1,6 +1,7 @@
+import z from "zod";
+
 import { DEFAULT_LIMIT } from "@/constants";
 import { baseProcedure, createTRPCRouter } from "@/trpc/init";
-import { z } from "zod";
 
 export const tagsRouter = createTRPCRouter({
   getMany: baseProcedure

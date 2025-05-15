@@ -1,10 +1,13 @@
+import z from "zod";
+import { TRPCError } from "@trpc/server";
+import type { Sort, Where } from "payload";
+import { headers as getHeaders } from "next/headers";
+
+import { DEFAULT_LIMIT } from "@/constants";
 import { Category, Media, Tenant } from "@/payload-types";
 import { baseProcedure, createTRPCRouter } from "@/trpc/init";
-import type { Sort, Where } from "payload";
-import { z } from "zod";
+
 import { sortValues } from "../search-params";
-import { DEFAULT_LIMIT } from "@/constants";
-import { headers as getHeaders } from "next/headers";
 
 export const productsRouter = createTRPCRouter({
   getOne: baseProcedure
@@ -16,14 +19,22 @@ export const productsRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const headers = await getHeaders();
       const session = await ctx.db.auth({ headers });
+
       const product = await ctx.db.findByID({
         collection: "products",
         id: input.id,
-        depth: 2,
+        depth: 2, // Load the "product.image", "product.tenant", and "product.tenant.image"
         select: {
           content: false,
         },
       });
+
+      if (product.isArchived) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Product not found",
+        });
+      }
 
       let isPurchased = false;
 
@@ -48,7 +59,7 @@ export const productsRouter = createTRPCRouter({
           },
         });
 
-        isPurchased = !ordersData.docs[0];
+        isPurchased = !!ordersData.docs[0];
       }
 
       const reviews = await ctx.db.find({
@@ -108,6 +119,7 @@ export const productsRouter = createTRPCRouter({
       z.object({
         cursor: z.number().default(1),
         limit: z.number().default(DEFAULT_LIMIT),
+        search: z.string().nullable().optional(),
         category: z.string().nullable().optional(),
         minPrice: z.string().nullable().optional(),
         maxPrice: z.string().nullable().optional(),
@@ -117,16 +129,21 @@ export const productsRouter = createTRPCRouter({
       })
     )
     .query(async ({ ctx, input }) => {
-      const where: Where = {};
-
+      const where: Where = {
+        isArchived: {
+          not_equals: true,
+        },
+      };
       let sort: Sort = "-createdAt";
 
       if (input.sort === "curated") {
         sort = "-createdAt";
       }
+
       if (input.sort === "hot_and_new") {
         sort = "+createdAt";
       }
+
       if (input.sort === "trending") {
         sort = "-createdAt";
       }
@@ -150,13 +167,21 @@ export const productsRouter = createTRPCRouter({
         where["tenant.slug"] = {
           equals: input.tenantSlug,
         };
+      } else {
+        // If we are loading products for public storefront (no tenantSlug)
+        // Make sure to not load products set to "isPrivate: true" (using reverse not_equals logic)
+        // These products are exclusively private to the tenant store
+
+        where["isPrivate"] = {
+          not_equals: true,
+        };
       }
 
       if (input.category) {
         const categoriesData = await ctx.db.find({
           collection: "categories",
           limit: 1,
-          depth: 1,
+          depth: 1, // Populate subcategories, subcategores.[0] will be a type of "Category"
           pagination: false,
           where: {
             slug: {
@@ -170,8 +195,10 @@ export const productsRouter = createTRPCRouter({
           subcategories: (doc.subcategories?.docs ?? []).map((doc) => ({
             // Because of "depth: 1" we are confident "doc" will be a type of "Category"
             ...(doc as Category),
+            subcategories: undefined,
           })),
         }));
+
         const subcategoriesSlugs = [];
         const parentCategory = formattedData[0];
 
@@ -194,9 +221,15 @@ export const productsRouter = createTRPCRouter({
         };
       }
 
+      if (input.search) {
+        where["name"] = {
+          like: input.search,
+        };
+      }
+
       const data = await ctx.db.find({
         collection: "products",
-        depth: 2,
+        depth: 2, // Populate "category", "image", "tenant" & "tenant.image"
         where,
         sort,
         page: input.cursor,
@@ -206,7 +239,7 @@ export const productsRouter = createTRPCRouter({
         },
       });
 
-      const dataWithSummaizedReviews = await Promise.all(
+      const dataWithSummarizedReviews = await Promise.all(
         data.docs.map(async (doc) => {
           const reviewsData = await ctx.db.find({
             collection: "reviews",
@@ -234,7 +267,7 @@ export const productsRouter = createTRPCRouter({
 
       return {
         ...data,
-        docs: dataWithSummaizedReviews.map((doc) => ({
+        docs: dataWithSummarizedReviews.map((doc) => ({
           ...doc,
           image: doc.image as Media | null,
           tenant: doc.tenant as Tenant & { image: Media | null },
