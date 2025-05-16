@@ -2,20 +2,23 @@
 import { mongooseAdapter } from "@payloadcms/db-mongodb";
 import { payloadCloudPlugin } from "@payloadcms/payload-cloud";
 import { lexicalEditor } from "@payloadcms/richtext-lexical";
+import { vercelBlobStorage } from "@payloadcms/storage-vercel-blob";
+import { multiTenantPlugin } from "@payloadcms/plugin-multi-tenant";
 import path from "path";
 import { buildConfig } from "payload";
 import { fileURLToPath } from "url";
 import sharp from "sharp";
-import { multiTenantPlugin } from "@payloadcms/plugin-multi-tenant";
+
+import { isSuperAdmin } from "./lib/access";
+
+import { Tags } from "./collections/Tags";
 import { Users } from "./collections/Users";
 import { Media } from "./collections/Media";
-import { Categories } from "./collections/Categories";
-import { Products } from "./collections/Products";
-import { Tags } from "./collections/Tags";
-import { Tenants } from "./collections/Tenants";
 import { Orders } from "./collections/Orders";
+import { Tenants } from "./collections/Tenants";
 import { Reviews } from "./collections/Reviews";
-import { isSuperAdmin } from "./lib/access";
+import { Products } from "./collections/Products";
+import { Categories } from "./collections/Categories";
 
 const filename = fileURLToPath(import.meta.url);
 const dirname = path.dirname(filename);
@@ -61,6 +64,12 @@ export default buildConfig({
       },
       userHasAccessToAllTenants: (user) => isSuperAdmin(user),
     }),
-    // storage-adapter-placeholder
+    vercelBlobStorage({
+      enabled: true,
+      collections: {
+        media: true,
+      },
+      token: process.env.BLOB_READ_WRITE_TOKEN,
+    }),
   ],
 });
